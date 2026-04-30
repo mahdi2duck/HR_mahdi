@@ -26,19 +26,24 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
         run: |
-          mkdir -p ~/.hermes
+           mkdir -p ~/.hermes
 
-          echo "Attempting to download previous state..."
-          aws --endpoint-url ${{ secrets.R2_ENDPOINT }} \
-            s3 cp s3://${{ secrets.R2_BUCKET }}/agents/hermes.zip hermes.zip \
-            || echo "No previous state found"
+           if [ -f hermes.zip ]; then
+           unzip -o hermes.zip -d /tmp/hermes_restore
 
-          if [ -f hermes.zip ]; then
-            unzip -o hermes.zip -d ~/
-            echo "State restored"
-          else
-            echo "Starting fresh"
-          fi
+            # Move only the .hermes content safely
+            if [ -d /tmp/hermes_restore/home/runner/.hermes ]; then
+              cp -r /tmp/hermes_restore/home/runner/.hermes/* ~/.hermes/
+            elif [ -d /tmp/hermes_restore/.hermes ]; then
+            cp -r /tmp/hermes_restore/.hermes/* ~/.hermes/
+           else
+             echo "Unexpected zip structure"
+               fi
+
+              echo "State restored"
+              else
+             echo "No previous state found"
+              fi
 
       - name: Install Hermes
         run: |
