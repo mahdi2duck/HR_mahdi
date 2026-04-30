@@ -22,7 +22,6 @@ jobs:
         run: |
           echo "y" | bash -c "$(curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh)"
           echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-          source ~/.bashrc
 
       - name: Write credentials and config
         env:
@@ -30,6 +29,7 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
         run: |
           mkdir -p ~/.hermes
 
@@ -40,6 +40,7 @@ jobs:
           GOOGLE_API_KEY=${GOOGLE_API_KEY}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+          TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL}
           EOF
           fi
 
@@ -56,6 +57,17 @@ jobs:
             tool_use_enforcement: auto
             reasoning_effort: medium
             image_input_mode: auto
+
+          auxiliary:
+            vision:
+              provider: gemini
+              model: gemini-2.0-flash
+
+          platform_toolsets:
+            cli:
+              - hermes-cli
+            telegram:
+              - hermes-telegram
 
           browser:
             camofox:
@@ -86,6 +98,12 @@ jobs:
           EOF
 
       - name: Start Hermes Gateway
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
         run: |
           source ~/.bashrc
           export PATH="$HOME/.local/bin:$PATH"
