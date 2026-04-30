@@ -5,18 +5,40 @@ on:
     - cron: '0 */5 * * *'
   workflow_dispatch:
 
+concurrency:
+  group: hermes-agent
+  cancel-in-progress: true
+
 jobs:
   hermes:
     runs-on: ubuntu-latest
     timeout-minutes: 350
 
     steps:
-      - name: Restore Hermes data
-        uses: actions/cache@v3
-        with:
-          path: ~/.hermes
-          key: hermes-persistent-data
-          restore-keys: hermes-persistent-data
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip unzip awscli
+
+      - name: Restore Hermes state from R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          mkdir -p ~/.hermes
+
+          echo "Attempting to download previous state..."
+          aws --endpoint-url ${{ secrets.R2_ENDPOINT }} \
+            s3 cp s3://${{ secrets.R2_BUCKET }}/agents/hermes.zip hermes.zip \
+            || echo "No previous state found"
+
+          if [ -f hermes.zip ]; then
+            unzip -o hermes.zip -d ~/
+            echo "State restored"
+          else
+            echo "Starting fresh"
+          fi
 
       - name: Install Hermes
         run: |
@@ -33,18 +55,16 @@ jobs:
         run: |
           mkdir -p ~/.hermes
 
-          # Only write .env if not restored from cache
-          if [ ! -f ~/.hermes/.env ]; then
-            cat > ~/.hermes/.env << EOF
+          # Always rewrite .env (safer than storing in R2)
+          cat > ~/.hermes/.env << EOF
           NVIDIA_API_KEY=${NVIDIA_API_KEY}
           GOOGLE_API_KEY=${GOOGLE_API_KEY}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
           TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL}
           EOF
-          fi
 
-          # Always overwrite config.yaml with latest
+          # Config (same as yours)
           cat > ~/.hermes/config.yaml << 'EOF'
           model:
             default: nvidia/nemotron-3-super-120b-a12b
@@ -109,9 +129,18 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           hermes gateway
 
-      - name: Save Hermes data
+      - name: Save Hermes state to R2
         if: always()
-        uses: actions/cache@v3
-        with:
-          path: ~/.hermes
-          key: hermes-persistent-data
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          echo "Zipping Hermes state..."
+          zip -r -9 hermes.zip ~/.hermes
+
+          echo "Uploading to R2..."
+          aws --endpoint-url ${{ secrets.R2_ENDPOINT }} \
+            s3 cp hermes.zip s3://${{ secrets.R2_BUCKET }}/agents/hermes.zip
+
+          echo "State saved"
