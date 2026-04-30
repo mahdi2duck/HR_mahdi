@@ -19,15 +19,26 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.hermes
+          # Using run_id ensures we always save a fresh version
           key: hermes-data-${{ github.run_id }}
           restore-keys: |
             hermes-data-
 
       - name: Install Hermes
         run: |
-          if [ ! -f ~/.local/bin/hermes ]; then
-            echo "y" | bash -c "$(curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh)"
+          # 1. FIX: Clean up the cached repo to avoid 'stash reference' errors
+          if [ -d "$HOME/.hermes/hermes-agent" ]; then
+            echo "Cleaning cached repository..."
+            cd "$HOME/.hermes/hermes-agent"
+            git reset --hard HEAD
+            git clean -fd
+            # Wipe any stale stashes that crash the installer
+            git stash clear || true 
+            cd $GITHUB_WORKSPACE
           fi
+
+          # 2. Run the official installer
+          echo "y" | bash -c "$(curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh)"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Write Credentials and Config
@@ -40,24 +51,21 @@ jobs:
         run: |
           mkdir -p ~/.hermes
           
-          # Create .env with the necessary allowlist
+          # Force create .env with the correct variables
           cat > ~/.hermes/.env << EOF
           NVIDIA_API_KEY=${NVIDIA_API_KEY}
           GOOGLE_API_KEY=${GOOGLE_API_KEY}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
           TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL}
-          # This allows the bot to actually respond to you
-          GATEWAY_ALLOW_ALL_USERS=false 
           EOF
 
-          # Simplified config that correctly enables the Telegram platform
+          # Enable Telegram platform explicitly in config
           cat > ~/.hermes/config.yaml << 'EOF'
           model:
             default: nvidia/nemotron-3-super-120b-a12b
             provider: nvidia
           
-          # This block is required to fix the "No messaging platforms enabled" error
           platforms:
             telegram:
               enabled: true
@@ -71,7 +79,10 @@ jobs:
           EOF
 
       - name: Start Hermes Gateway
-        run: hermes gateway
+        run: |
+          source ~/.bashrc || true
+          export PATH="$HOME/.local/bin:$PATH"
+          hermes gateway
 
       - name: Save Hermes data
         if: always() 
