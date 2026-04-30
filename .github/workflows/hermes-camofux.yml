@@ -1,10 +1,10 @@
-name: Hermes MCP + camofux
+name: Hermes MCP + Camoufox (NPM)
 
 on:
   workflow_dispatch:
 
 concurrency:
-  group: hermes-test
+  group: hermes-production
   cancel-in-progress: true
 
 jobs:
@@ -13,107 +13,113 @@ jobs:
     timeout-minutes: 350
 
     steps:
-      - name: Restore Hermes data
+      - name: Restore Hermes Cache
         uses: actions/cache/restore@v4
         with:
-          path: ~/.hermes
+          path: |
+            ~/.hermes
+            ~/.npm
+            ~/.camofox
           key: hermes-data-${{ github.run_id }}
           restore-keys: |
             hermes-data-
-            
-      - name: Start Camofox (Stealth Browser)
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install and Start Camoufox (Background)
         run: |
-         # Install and run
-         git clone https://github.com/jo-inc/camofox-browser && cd camofox-browser
-         npm install && npm start   # downloads Camoufox (~300MB) on first run
-         # Or via Docker
-         docker run -d --network host -e CAMOFOX_PORT=9377 jo-inc/camofox-browser
-         # Wait a few seconds for the browser server to be ready
-          sleep 5
+          # 1. Clone the stealth browser repo
+          git clone https://github.com/jo-inc/camofox-browser
+          cd camofox-browser
+          
+          # 2. Install dependencies
+          npm install
+          
+          # 3. Start the server in the background
+          # Default port is 9377. We use nohup to ensure it persists across steps.
+          export CAMOFOX_PORT=9377
+          nohup npm start > camofox.log 2>&1 &
+          
+          # 4. Wait for the browser to download and the health check to pass
+          echo "Waiting for Camoufox to download and start (up to 5 minutes)..."
+          TIMEOUT=300
+          until curl -s http://localhost:9377/health; do
+            if [ $TIMEOUT -le 0 ]; then 
+              echo "ERROR: Camoufox failed to start within 5 minutes."
+              cat camofox.log
+              exit 1 
+            fi
+            sleep 10
+            TIMEOUT=$((TIMEOUT-10))
+            echo "Still waiting... ($TIMEOUT seconds remaining)"
+          done
+          echo "Camoufox is ONLINE at http://localhost:9377"
+
       - name: Install Hermes
         run: |
-          # Clean up the cached repo to avoid 'stash reference' errors
+          # Clean up any broken repo state from cache to prevent git errors
           if [ -d "$HOME/.hermes/hermes-agent" ]; then
-            echo "Cleaning cached repository..."
             cd "$HOME/.hermes/hermes-agent"
-            git reset --hard HEAD
-            git clean -fd
-            git stash clear || true 
+            git reset --hard HEAD && git clean -fd
             cd $GITHUB_WORKSPACE
           fi
-
-          # Run the official installer
+          
+          # Run official installer
           echo "y" | bash -c "$(curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh)"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Write Credentials and Config
+      - name: Configure Hermes
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
-          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
-          # Pull your API keys from GitHub Secrets
-          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
           BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
         run: |
           mkdir -p ~/.hermes
           
-          # Force create .env with all required variables
+          # Write .env with the local Camoufox URL
           cat > ~/.hermes/.env << EOF
           NVIDIA_API_KEY=${NVIDIA_API_KEY}
-          GOOGLE_API_KEY=${GOOGLE_API_KEY}
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-          TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
-          TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL}
           CAMOFOX_URL=http://localhost:9377
           EOF
 
-          # Write Config with the multi-MCP setup
-          # Note the use of 'EOF' with single quotes so bash doesn't evaluate the $ variables inside the file too early
+          # Write config.yaml
           cat > ~/.hermes/config.yaml << EOF
           model:
             default: nvidia/nemotron-3-super-120b-a12b
             provider: nvidia
-          
           platforms:
             telegram:
               enabled: true
-
           mcp_servers:
-            scraperapi:
-              command: "npx"
-              args: ["-y", "scraperapi/scraperapi-skills"] 
-              env:
-                SCRAPERAPI_KEY: "${SCRAPERAPI_KEY}"
-            
             brightdata:
               command: "npx"
               args: ["-y", "@brightdata/mcp"]
               env:
-                # Bright Data strictly expects 'API_TOKEN'
                 API_TOKEN: "${BRIGHTDATA_API_TOKEN}"
-           browser:
+          browser:
             camofox:
-             managed_persistence: true
-             
+              managed_persistence: true
           agent:
             max_turns: 90
             yolo: true
-
-          memory:
-            memory_enabled: true
           EOF
 
-      - name: Start Hermes Gateway
+      - name: Run Hermes Gateway
         run: |
-          source ~/.bashrc || true
           export PATH="$HOME/.local/bin:$PATH"
+          # Gateway starts here. It will use the background Camoufox for browser tools.
           hermes gateway
 
       - name: Save Hermes data
-        if: always() 
+        if: always()
         uses: actions/cache/save@v4
         with:
-          path: ~/.hermes
+          path: |
+            ~/.hermes
+            ~/.camofox
           key: hermes-data-${{ github.run_id }}
