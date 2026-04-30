@@ -1,0 +1,120 @@
+name: Hermes MCP + camofux
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: hermes-test
+  cancel-in-progress: true
+
+jobs:
+  hermes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Restore Hermes data
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.hermes
+          key: hermes-data-${{ github.run_id }}
+          restore-keys: |
+            hermes-data-
+            
+      - name: Start Camofox (Stealth Browser)
+        run: |
+          docker run -d \
+            --name camofox \
+            --network host \
+            -e CAMOFOX_PORT=9377 \
+            jo-inc/camofox-browser:latest
+          
+          # Wait a few seconds for the browser server to be ready
+          sleep 5
+      - name: Install Hermes
+        run: |
+          # Clean up the cached repo to avoid 'stash reference' errors
+          if [ -d "$HOME/.hermes/hermes-agent" ]; then
+            echo "Cleaning cached repository..."
+            cd "$HOME/.hermes/hermes-agent"
+            git reset --hard HEAD
+            git clean -fd
+            git stash clear || true 
+            cd $GITHUB_WORKSPACE
+          fi
+
+          # Run the official installer
+          echo "y" | bash -c "$(curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh)"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Write Credentials and Config
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
+          # Pull your API keys from GitHub Secrets
+          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+          BRIGHTDATA_API_TOKEN: ${{ secrets.BRIGHTDATA_API_TOKEN }}
+        run: |
+          mkdir -p ~/.hermes
+          
+          # Force create .env with all required variables
+          cat > ~/.hermes/.env << EOF
+          NVIDIA_API_KEY=${NVIDIA_API_KEY}
+          GOOGLE_API_KEY=${GOOGLE_API_KEY}
+          TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+          TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+          TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL}
+          CAMOFOX_URL=http://localhost:9377
+          EOF
+
+          # Write Config with the multi-MCP setup
+          # Note the use of 'EOF' with single quotes so bash doesn't evaluate the $ variables inside the file too early
+          cat > ~/.hermes/config.yaml << EOF
+          model:
+            default: nvidia/nemotron-3-super-120b-a12b
+            provider: nvidia
+          
+          platforms:
+            telegram:
+              enabled: true
+
+          mcp_servers:
+            scraperapi:
+              command: "npx"
+              args: ["-y", "scraperapi/scraperapi-skills"] 
+              env:
+                SCRAPERAPI_KEY: "${SCRAPERAPI_KEY}"
+            
+            brightdata:
+              command: "npx"
+              args: ["-y", "@brightdata/mcp"]
+              env:
+                # Bright Data strictly expects 'API_TOKEN'
+                API_TOKEN: "${BRIGHTDATA_API_TOKEN}"
+           browser:
+            camofox:
+             managed_persistence: true
+             
+          agent:
+            max_turns: 90
+            yolo: true
+
+          memory:
+            memory_enabled: true
+          EOF
+
+      - name: Start Hermes Gateway
+        run: |
+          source ~/.bashrc || true
+          export PATH="$HOME/.local/bin:$PATH"
+          hermes gateway
+
+      - name: Save Hermes data
+        if: always() 
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.hermes
+          key: hermes-data-${{ github.run_id }}
