@@ -23,13 +23,12 @@ jobs:
             
       - name: Start Camofox (Stealth Browser)
         run: |
-          docker run -d \
-            --name camofox \
-            --network host \
-            -e CAMOFOX_PORT=9377 \
-            jo-inc/camofox-browser:latest
-          
-          # Wait a few seconds for the browser server to be ready
+         # Install and run
+         git clone https://github.com/jo-inc/camofox-browser && cd camofox-browser
+         npm install && npm start   # downloads Camoufox (~300MB) on first run
+         # Or via Docker
+         docker run -d --network host -e CAMOFOX_PORT=9377 jo-inc/camofox-browser
+         # Wait a few seconds for the browser server to be ready
           sleep 5
       - name: Install Hermes
         run: |
