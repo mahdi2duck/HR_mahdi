@@ -1,0 +1,183 @@
+name: Hermes Gateway 3
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: hermes-gateway
+  cancel-in-progress: true
+
+jobs:
+  hermes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Restore Hermes data
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.hermes
+            ~/.hermes/cron
+            ~/.hermes/platforms
+            ~/.hermes/sessions
+            ~/.hermes/memory
+          key: hermes-persistent-data
+          restore-keys: hermes-persistent-data
+
+      - name: Install Hermes
+        run: |
+          echo "y" | bash -c "$(curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh)"
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+
+      - name: Write credentials and config
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
+        run: |
+          mkdir -p ~/.hermes/cron
+          mkdir -p ~/.hermes/platforms
+          mkdir -p ~/.hermes/sessions
+          mkdir -p ~/.hermes/memory
+
+          # Always write .env fresh from secrets
+          cat > ~/.hermes/.env << EOF
+          NVIDIA_API_KEY=${NVIDIA_API_KEY}
+          GOOGLE_API_KEY=${GOOGLE_API_KEY}
+          TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+          TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+          TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL}
+          EOF
+
+          # Always overwrite config.yaml with latest
+          cat > ~/.hermes/config.yaml << 'EOF'
+          model:
+            default: nvidia/nemotron-3-super-120b-a12b
+            provider: nvidia
+            base_url: https://integrate.api.nvidia.com/v1
+
+          agent:
+            max_turns: 90
+            yolo: true
+            tool_use_enforcement: auto
+            reasoning_effort: medium
+            image_input_mode: auto
+
+          auxiliary:
+            vision:
+              provider: gemini
+              model: gemini-2.0-flash
+
+          platform_toolsets:
+            cli:
+              - hermes-cli
+            telegram:
+              - hermes-telegram
+
+          browser:
+            camofox:
+              managed_persistence: true
+
+          telegram:
+            reply_to_unknown: false
+            reactions: false
+
+          memory:
+            memory_enabled: true
+            user_profile_enabled: true
+
+          session_reset:
+            mode: both
+            idle_minutes: 1440
+            at_hour: 4
+
+          compression:
+            enabled: true
+            threshold: 0.5
+
+          security:
+            tirith_enabled: false
+
+          display:
+            tool_progress: all
+          EOF
+
+          # Show what crons survived from cache
+          echo "=== Cron jobs in cache ==="
+          ls ~/.hermes/cron/ 2>/dev/null || echo "No cron jobs found in cache"
+
+      - name: Restore and verify cron jobs
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
+        run: |
+          source ~/.bashrc
+          export PATH="$HOME/.local/bin:$PATH"
+
+          # Start gateway briefly in background
+          hermes gateway &
+          GATEWAY_PID=$!
+          sleep 45
+
+          # Recreate hourly_weather if missing
+          if ! ls ~/.hermes/cron/ 2>/dev/null | grep -q "hourly_weather"; then
+            echo "hourly_weather not found — recreating..."
+            hermes cron add hourly_weather \
+              --schedule "0 * * * *" \
+              --prompt "Fetch https://wttr.in/Sale+Morocco?format=j1 then parse the JSON to extract temp_C, FeelsLikeC, weatherDesc, humidity, windspeedKmph. Format and send to Telegram as:
+          🌤 Hourly Weather - Salé
+          🌡 Temp: [temp]°C
+          🤔 Feels like: [feels]°C
+          ⛅ Condition: [condition]
+          💧 Humidity: [humidity]%
+          💨 Wind: [wind] km/h
+          🕐 Updated: [current time]"
+          else
+            echo "hourly_weather found in cache — skipping recreation"
+          fi
+
+          # Recreate morocco_stories if missing
+          if ! ls ~/.hermes/cron/ 2>/dev/null | grep -q "morocco_stories"; then
+            echo "morocco_stories not found — recreating..."
+            hermes cron add morocco_stories \
+              --schedule "0 8 * * *" \
+              --prompt "Use the browser to navigate to https://old.reddit.com/r/morocco/search/?q=success+achievement&sort=new&t=month. Wait for page to load. Extract up to 5 positive or inspiring posts from this month. Read ~/.hermes/sent_stories.txt and skip already sent URLs. If nothing new send: 📭 Morocco Stories — Nothing new today! Otherwise format each as: 🇲🇦 Morocco Story [n/5] 📌 [title] 💬 [summary] 🔗 [url] ─────────────── Send to Telegram. Append new URLs to ~/.hermes/sent_stories.txt and trim to last 100 entries."
+          else
+            echo "morocco_stories found in cache — skipping recreation"
+          fi
+
+          # Stop background gateway
+          kill $GATEWAY_PID 2>/dev/null
+          sleep 5
+
+      - name: Start Hermes Gateway
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
+        run: |
+          source ~/.bashrc
+          export PATH="$HOME/.local/bin:$PATH"
+          hermes gateway
+
+      - name: Save Hermes data
+        if: always()
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.hermes
+            ~/.hermes/cron
+            ~/.hermes/platforms
+            ~/.hermes/sessions
+            ~/.hermes/memory
+          key: hermes-persistent-data
