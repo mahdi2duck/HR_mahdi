@@ -67,7 +67,10 @@ jobs:
           platforms:
             telegram:
               enabled: true
-
+          browser:
+           camofox:
+            managed_persistence: true
+            
           agent:
             max_turns: 90
             yolo: true
