@@ -1,4 +1,4 @@
-name: Hermes 10-Min Persistence Test
+name: Hermes MCP
 
 on:
   workflow_dispatch:
