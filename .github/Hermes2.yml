@@ -1,0 +1,117 @@
+name: Hermes Gateway 2
+
+on:
+  schedule:
+    - cron: '0 */5 * * *'
+  workflow_dispatch:
+
+jobs:
+  hermes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+      - name: Restore Hermes data
+        uses: actions/cache@v3
+        with:
+          path: ~/.hermes
+          key: hermes-persistent-data
+          restore-keys: hermes-persistent-data
+
+      - name: Install Hermes
+        run: |
+          echo "y" | bash -c "$(curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh)"
+          echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+
+      - name: Write credentials and config
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
+        run: |
+          mkdir -p ~/.hermes
+
+          # Only write .env if not restored from cache
+          if [ ! -f ~/.hermes/.env ]; then
+            cat > ~/.hermes/.env << EOF
+          NVIDIA_API_KEY=${NVIDIA_API_KEY}
+          GOOGLE_API_KEY=${GOOGLE_API_KEY}
+          TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+          TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+          TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL}
+          EOF
+          fi
+
+          # Always overwrite config.yaml with latest
+          cat > ~/.hermes/config.yaml << 'EOF'
+          model:
+            default: nvidia/nemotron-3-super-120b-a12b
+            provider: nvidia
+            base_url: https://integrate.api.nvidia.com/v1
+
+          agent:
+            max_turns: 90
+            yolo: true
+            tool_use_enforcement: auto
+            reasoning_effort: medium
+            image_input_mode: auto
+
+          auxiliary:
+            vision:
+              provider: gemini
+              model: gemini-2.0-flash
+
+          platform_toolsets:
+            cli:
+              - hermes-cli
+            telegram:
+              - hermes-telegram
+
+          browser:
+            camofox:
+              managed_persistence: true
+
+          telegram:
+            reply_to_unknown: false
+            reactions: false
+
+          memory:
+            memory_enabled: true
+            user_profile_enabled: true
+
+          session_reset:
+            mode: both
+            idle_minutes: 1440
+            at_hour: 4
+
+          compression:
+            enabled: true
+            threshold: 0.5
+
+          security:
+            tirith_enabled: false
+
+          display:
+            tool_progress: all
+          EOF
+
+      - name: Start Hermes Gateway
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS: ${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ secrets.TELEGRAM_HOME_CHANNEL }}
+        run: |
+          source ~/.bashrc
+          export PATH="$HOME/.local/bin:$PATH"
+          hermes gateway
+
+      - name: Save Hermes data
+        if: always()
+        uses: actions/cache@v3
+        with:
+          path: ~/.hermes
+          key: hermes-persistent-data
