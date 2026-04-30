@@ -1,0 +1,73 @@
+name: Hermes 10-Min Persistence Test
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' 
+  workflow_dispatch: # Allows you to start it manually for the first test
+
+concurrency:
+  group: hermes-test
+  cancel-in-progress: true
+
+jobs:
+  hermes:
+    runs-on: ubuntu-latest
+    # The runner will hard-kill the job after 11 minutes
+    timeout-minutes: 11 
+
+    steps:
+      - name: Restore Hermes data
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.hermes
+          key: hermes-data-${{ github.run_id }}
+          restore-keys: |
+            hermes-data-
+
+      - name: Install Hermes
+        run: |
+          if [ ! -f ~/.local/bin/hermes ]; then
+            echo "y" | bash -c "$(curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh)"
+          fi
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Write Credentials
+        run: |
+          mkdir -p ~/.hermes
+          if [ ! -f ~/.hermes/.env ]; then
+            cat > ~/.hermes/.env << EOF
+          NVIDIA_API_KEY=${{ secrets.NVIDIA_API_KEY }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+          TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ALLOWED_USERS=${{ secrets.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL=${{ secrets.TELEGRAM_HOME_CHANNEL }}
+          EOF
+          fi
+
+      - name: Write Config
+        run: |
+          cat > ~/.hermes/config.yaml << 'EOF'
+          model:
+            default: nvidia/nemotron-3-super-120b-a12b
+            provider: nvidia
+          agent:
+            max_turns: 90
+            yolo: true
+          memory:
+            memory_enabled: true
+          platform_toolsets:
+            cli: [hermes-cli]
+            telegram: [hermes-telegram]
+          EOF
+
+      - name: Start Hermes Gateway
+        # This will run until the timeout-minutes kills it
+        run: hermes gateway
+
+      - name: Save Hermes data
+        # 'always()' is key: it saves the data even when the 11-min timeout hits
+        if: always() 
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.hermes
+          key: hermes-data-${{ github.run_id }}
