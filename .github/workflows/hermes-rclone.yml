@@ -177,14 +177,14 @@ jobs:
           EOF
 
           while true; do
-            sleep 10
+            sleep 5m
             echo "Packaging Hermes and Camoufox state..."
             
-            # Compress hermes state (excluding secrets) into a single file
-            tar -czf /tmp/hermes-state.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes .
+            # Compress hermes state (prevent crash if files change during read)
+            tar -czf /tmp/hermes-state.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes . || echo "Hermes files modified, ignoring tar warning."
             
-            # Compress camoufox cache into a single file
-            tar -czf /tmp/camofox-state.tar.gz -C ~/.camofox .
+            # Compress camoufox cache (prevent crash if files change during read)
+            tar -czf /tmp/camofox-state.tar.gz -C ~/.camofox . || echo "Camoufox files modified, ignoring tar warning."
 
             # Copy the two single files to R2 (Overwrites the old ones)
             rclone copy /tmp/hermes-state.tar.gz r2:hermes-state/ \
@@ -195,7 +195,6 @@ jobs:
               --log-level ERROR
           done &
           echo "Tarball watcher started (PID: $!), uploading 2 files every 60s"
-          
 
       - name: Run Hermes Gateway
         run: |
@@ -203,6 +202,43 @@ jobs:
           hermes gateway
 
       - name: Final Tarball Backup to R2 on Exit
+        if: always()
+        run: |
+          echo "Running final state backup to R2..."
+          
+          # Re-create the exclude list just in case the job failed before it was generated
+          cat > /tmp/tar-exclude.txt << EOF
+          .env
+          config.yaml
+          EOF
+
+          # Compress and upload Hermes state (if it exists)
+          if [ -d "$HOME/.hermes" ]; then
+            echo "Packaging Hermes state..."
+            # The '|| echo' prevents the job from crashing if files change while zipping
+            tar -czf /tmp/hermes-state.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes . || echo "Warning: Hermes files modified during backup. Proceeding."
+            rclone copy /tmp/hermes-state.tar.gz r2:hermes-state/ \
+              --transfers=2 \
+              --log-level INFO
+            echo "Hermes final backup uploaded."
+          else
+            echo "Hermes directory not found, skipping final backup."
+          fi
+
+          # Compress and upload Camoufox cache (if it exists)
+          if [ -d "$HOME/.camofox" ]; then
+            echo "Packaging Camoufox state..."
+            # The '|| echo' prevents the job from crashing if files change while zipping
+            tar -czf /tmp/camofox-state.tar.gz -C ~/.camofox . || echo "Warning: Camoufox files modified during backup. Proceeding."
+            rclone copy /tmp/camofox-state.tar.gz r2:hermes-state/ \
+              --transfers=2 \
+              --log-level INFO
+            echo "Camoufox final backup uploaded."
+          else
+            echo "Camoufox directory not found, skipping final backup."
+          fi
+          
+          echo "Final backup sequence complete."
         if: always()
         run: |
           echo "Running final state backup to R2..."
