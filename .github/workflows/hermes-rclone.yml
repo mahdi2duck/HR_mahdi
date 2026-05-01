@@ -56,16 +56,16 @@ jobs:
           echo "Pulling latest state archives from R2..."
 
           # Download the archives to /tmp
-          rclone copy r2:hermes-state/hermes-state.tar.gz /tmp/ || echo "No Hermes backup found."
-          rclone copy r2:hermes-state/camofox-state.tar.gz /tmp/ || echo "No Camoufox backup found."
+          rclone copy r2:hermes-agent/hermes-agent.tar.gz /tmp/ || echo "No Hermes backup found."
+          rclone copy r2:hermes-agent/camofox-state.tar.gz /tmp/ || echo "No Camoufox backup found."
 
           # Create directories
           mkdir -p ~/.hermes
           mkdir -p ~/.camofox
 
           # Extract if they exist
-          if [ -f /tmp/hermes-state.tar.gz ]; then
-            tar -xzf /tmp/hermes-state.tar.gz -C ~/.hermes
+          if [ -f /tmp/hermes-agent.tar.gz ]; then
+            tar -xzf /tmp/hermes-agent.tar.gz -C ~/.hermes
             echo "Hermes state restored."
           fi
 
@@ -77,7 +77,7 @@ jobs:
       - name: Restore Camoufox Cache from R2
         run: |
           echo "Pulling Camoufox cache from R2..."
-          rclone sync r2:hermes-state/camofox ~/.camofox \
+          rclone sync r2:hermes-agent/camofox ~/.camofox \
             --create-empty-src-dirs \
             --transfers=8 \
             --log-level INFO
@@ -181,16 +181,16 @@ jobs:
             echo "Packaging Hermes and Camoufox state..."
             
             # Compress hermes state (prevent crash if files change during read)
-            tar -czf /tmp/hermes-state.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes . || echo "Hermes files modified, ignoring tar warning."
+            tar -czf /tmp/hermes-agent.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes . || echo "Hermes files modified, ignoring tar warning."
             
             # Compress camoufox cache (prevent crash if files change during read)
             tar -czf /tmp/camofox-state.tar.gz -C ~/.camofox . || echo "Camoufox files modified, ignoring tar warning."
 
             # Copy the two single files to R2 (Overwrites the old ones)
-            rclone copy /tmp/hermes-state.tar.gz r2:hermes-state/ \
+            rclone copy /tmp/hermes-agent.tar.gz r2:hermes-agent/ \
               --transfers=2 \
               --log-level ERROR
-            rclone copy /tmp/camofox-state.tar.gz r2:hermes-state/ \
+            rclone copy /tmp/camofox-state.tar.gz r2:hermes-agent/ \
               --transfers=2 \
               --log-level ERROR
           done &
@@ -216,8 +216,8 @@ jobs:
           if [ -d "$HOME/.hermes" ]; then
             echo "Packaging Hermes state..."
             # The '|| echo' prevents the job from crashing if files change while zipping
-            tar -czf /tmp/hermes-state.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes . || echo "Warning: Hermes files modified during backup. Proceeding."
-            rclone copy /tmp/hermes-state.tar.gz r2:hermes-state/ \
+            tar -czf /tmp/hermes-agent.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes . || echo "Warning: Hermes files modified during backup. Proceeding."
+            rclone copy /tmp/hermes-agent.tar.gz r2:hermes-agent/ \
               --transfers=2 \
               --log-level INFO
             echo "Hermes final backup uploaded."
@@ -230,7 +230,7 @@ jobs:
             echo "Packaging Camoufox state..."
             # The '|| echo' prevents the job from crashing if files change while zipping
             tar -czf /tmp/camofox-state.tar.gz -C ~/.camofox . || echo "Warning: Camoufox files modified during backup. Proceeding."
-            rclone copy /tmp/camofox-state.tar.gz r2:hermes-state/ \
+            rclone copy /tmp/camofox-state.tar.gz r2:hermes-agent/ \
               --transfers=2 \
               --log-level INFO
             echo "Camoufox final backup uploaded."
