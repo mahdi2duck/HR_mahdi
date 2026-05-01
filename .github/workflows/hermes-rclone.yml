@@ -1,4 +1,4 @@
-name: Hermes MCP + Camoufox (NPM) + rclone
+name: Hermes MCP + rclone
 
 on:
   workflow_dispatch:
@@ -41,7 +41,7 @@ jobs:
           EOF
 
       - name: Fix DNS (Cloudflare)
-          run: |
+        run: |
           echo "Fixing DNS..."
           sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
           cat /etc/resolv.conf
