@@ -239,38 +239,6 @@ jobs:
           fi
           
           echo "Final backup sequence complete."
-        if: always()
-        run: |
-          echo "Running final state backup to R2..."
-          
-          # Re-create the exclude list just in case the job failed before it was generated
-          cat > /tmp/tar-exclude.txt << EOF
-          .env
-          config.yaml
-          EOF
 
-          # Compress and upload Hermes state (if it exists)
-          if [ -d "$HOME/.hermes" ]; then
-            echo "Packaging Hermes state..."
-            tar -czf /tmp/hermes-state.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes .
-            rclone copy /tmp/hermes-state.tar.gz r2:hermes-state/ \
-              --transfers=2 \
-              --log-level INFO
-            echo "Hermes final backup uploaded."
-          else
-            echo "Hermes directory not found, skipping final backup."
-          fi
 
-          # Compress and upload Camoufox cache (if it exists)
-          if [ -d "$HOME/.camofox" ]; then
-            echo "Packaging Camoufox state..."
-            tar -czf /tmp/camofox-state.tar.gz -C ~/.camofox .
-            rclone copy /tmp/camofox-state.tar.gz r2:hermes-state/ \
-              --transfers=2 \
-              --log-level INFO
-            echo "Camoufox final backup uploaded."
-          else
-            echo "Camoufox directory not found, skipping final backup."
-          fi
-          
-          echo "Final backup sequence complete."
+      
