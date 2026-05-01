@@ -177,7 +177,7 @@ jobs:
           EOF
 
           while true; do
-            sleep 5m
+            sleep 3h
             echo "Packaging Hermes and Camoufox state..."
             
             # Compress hermes state (prevent crash if files change during read)
