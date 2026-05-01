@@ -40,11 +40,16 @@ jobs:
           acl = private
           EOF
 
-      # - name: Fix DNS (Cloudflare)
-      #   run: |
-      #     echo "Fixing DNS..."
-      #     sudo bash -c 'echo "nameserver 1.1.1.1" > /etc/resolv.conf'
-      #     cat /etc/resolv.conf
+      - name: Fix DNS (Cloudflare)
+        run: |
+          echo "Fixing DNS..."
+          sudo tee /etc/resolv.conf > /dev/null << EOF
+          nameserver 1.1.1.1
+          EOF
+          cat /etc/resolv.conf
+          # Add a test to verify connectivity
+          ping -c 1 1.1.1.1 || echo "DNS test failed"
+          nslookup r2.cloudflarestorage.com || echo "DNS lookup failed"
 
       - name: Restore Hermes State from R2
         run: |
