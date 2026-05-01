@@ -51,14 +51,28 @@ jobs:
           ping -c 1 1.1.1.1 || echo "DNS test failed"
           nslookup r2.cloudflarestorage.com || echo "DNS lookup failed"
 
-      - name: Restore Hermes State from R2
+      - name: Restore State from R2
         run: |
-          echo "Pulling latest Hermes state from R2..."
-          rclone sync r2:hermes-state/hermes ~/.hermes \
-            --create-empty-src-dirs \
-            --transfers=8 \
-            --log-level INFO
-          echo "Restore complete."
+          echo "Pulling latest state archives from R2..."
+
+          # Download the archives to /tmp
+          rclone copy r2:hermes-state/hermes-state.tar.gz /tmp/ || echo "No Hermes backup found."
+          rclone copy r2:hermes-state/camofox-state.tar.gz /tmp/ || echo "No Camoufox backup found."
+
+          # Create directories
+          mkdir -p ~/.hermes
+          mkdir -p ~/.camofox
+
+          # Extract if they exist
+          if [ -f /tmp/hermes-state.tar.gz ]; then
+            tar -xzf /tmp/hermes-state.tar.gz -C ~/.hermes
+            echo "Hermes state restored."
+          fi
+
+          if [ -f /tmp/camofox-state.tar.gz ]; then
+            tar -xzf /tmp/camofox-state.tar.gz -C ~/.camofox
+            echo "Camoufox state restored."
+          fi
 
       - name: Restore Camoufox Cache from R2
         run: |
@@ -154,24 +168,34 @@ jobs:
             yolo: true
           EOF
 
-      - name: Start Rclone Sync Watcher (Background)
+      - name: Start Tarball Backup Watcher (Background)
         run: |
           # Exclude files that are always regenerated from GitHub Secrets
-          cat > /tmp/rclone-exclude.txt << EOF
+          cat > /tmp/tar-exclude.txt << EOF
           .env
           config.yaml
           EOF
 
-          # Sync ~/.hermes to R2 every 60 seconds in the background
           while true; do
-            sleep 60
-            rclone sync ~/.hermes r2:hermes-state/hermes \
-              --exclude-from /tmp/rclone-exclude.txt \
-              --transfers=4 \
-              --checksum \
+            sleep 10
+            echo "Packaging Hermes and Camoufox state..."
+            
+            # Compress hermes state (excluding secrets) into a single file
+            tar -czf /tmp/hermes-state.tar.gz -X /tmp/tar-exclude.txt -C ~/.hermes .
+            
+            # Compress camoufox cache into a single file
+            tar -czf /tmp/camofox-state.tar.gz -C ~/.camofox .
+
+            # Copy the two single files to R2 (Overwrites the old ones)
+            rclone copy /tmp/hermes-state.tar.gz r2:hermes-state/ \
+              --transfers=2 \
+              --log-level ERROR
+            rclone copy /tmp/camofox-state.tar.gz r2:hermes-state/ \
+              --transfers=2 \
               --log-level ERROR
           done &
-          echo "Rclone watcher started (PID: $!), syncing every 60s"
+          echo "Tarball watcher started (PID: $!), uploading 2 files every 60s"
+          
 
       - name: Run Hermes Gateway
         run: |
