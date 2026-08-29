@@ -1,0 +1,91 @@
+name: Tor Traffic Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-tor-traffic:
+    runs-on: ubuntu-latest
+
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      # PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+      # PROXY_SERVER:   ${{ secrets.PROXY_SERVER }}
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Node.js + npm cache ───────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      # ── 3. Playwright browser cache ──────────────────────────────────────────
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # ── 4. Install npm dependencies ──────────────────────────────────────────
+      - name: Install project dependencies
+        run: npm ci
+
+      # ── 5. Install Playwright browsers ONLY on cache miss ────────────────────
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
+
+      # ── 6. Install Tor (2 instances: ports 9050+9051 and 9150+9151) ──────────
+      - name: Install Tor
+        run: sudo apt-get update && sudo apt-get install -y tor
+
+      - name: Configure and start 3 Tor instances
+        run: |
+          # ── Generate the correct hashed password at runtime ──
+          TOR_HASH=$(tor --hash-password "mahdi2019" | tail -1)
+          echo "Generated hash: $TOR_HASH"
+
+          # ── Instance 1: SOCKS 9050 / Control 9051 ──
+          printf "SocksPort 9050\nControlPort 9051\nHashedControlPassword %s\nDataDirectory /var/lib/tor\n" "$TOR_HASH" \
+            | sudo tee /etc/tor/torrc > /dev/null
+
+          # ── Instance 2: SOCKS 9150 / Control 9151 ──
+          sudo mkdir -p /var/lib/tor2
+          sudo chown debian-tor:debian-tor /var/lib/tor2
+          printf "SocksPort 9150\nControlPort 9151\nHashedControlPassword %s\nDataDirectory /var/lib/tor2\nPidFile /var/run/tor/tor2.pid\n" "$TOR_HASH" \
+            | sudo tee /etc/tor/torrc2 > /dev/null
+
+          # ── Instance 3: SOCKS 9250 / Control 9251 ──
+          sudo mkdir -p /var/lib/tor3
+          sudo chown debian-tor:debian-tor /var/lib/tor3
+          printf "SocksPort 9250\nControlPort 9251\nHashedControlPassword %s\nDataDirectory /var/lib/tor3\nPidFile /var/run/tor/tor3.pid\n" "$TOR_HASH" \
+            | sudo tee /etc/tor/torrc3 > /dev/null
+
+          echo "--- torrc1 ---" && sudo cat /etc/tor/torrc
+          echo "--- torrc2 ---" && sudo cat /etc/tor/torrc2
+          echo "--- torrc3 ---" && sudo cat /etc/tor/torrc3
+
+          # ── Start all 3 instances ──
+          sudo service tor restart
+          sudo -u debian-tor tor -f /etc/tor/torrc2 --defaults-torrc /dev/null &
+          sudo -u debian-tor tor -f /etc/tor/torrc3 --defaults-torrc /dev/null &
+
+          # ── Wait for all 3 SOCKS ports to be ready ──
+          echo "Waiting for all 3 Tor instances to be ready..."
+          timeout 60 bash -c 'until nc -z 127.0.0.1 9050; do sleep 1; done'
+          timeout 60 bash -c 'until nc -z 127.0.0.1 9150; do sleep 1; done'
+          timeout 60 bash -c 'until nc -z 127.0.0.1 9250; do sleep 1; done'
+          echo "All 3 Tor instances are up ✅"
+
+      # ── 7. Run tor_traffic.js (xvfb pre-installed on ubuntu-latest) ──────────
+      # Note: 3 tor instances run inside the script (torInstances array)
+      - name: Run Tor traffic bot
+        run: xvfb-run --auto-servernum node tor_traffic.js work=3 screenshot=true

@@ -1,0 +1,219 @@
+name: SOCKS5 Proxy Farm
+
+on:
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "Number of proxies to spawn"
+        required: false
+        default: "250"
+      max_parallel:
+        description: "Max concurrent jobs (Free=20, Pro=40, Team=60)"
+        required: false
+        default: "20"
+      duration:
+        description: "Keep proxies alive (hours, max 6)"
+        required: false
+        default: "6"
+
+jobs:
+  # ── Step 1: Generate matrix [1..count] ──────────────────────────────────────
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.set-matrix.outputs.chunks }}
+    steps:
+      - name: Generate matrix
+        id: set-matrix
+        run: |
+          COUNT=${{ github.event.inputs.count || '250' }}
+          echo "chunks=$(python3 -c "import json; print(json.dumps(list(range(1, $COUNT + 1))))")" >> $GITHUB_OUTPUT
+
+  # ── Step 2: Spawn SOCKS5 proxy on each runner ───────────────────────────────
+  spawn-proxy:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      max-parallel: ${{ fromJson(github.event.inputs.max_parallel || '20') }}
+      fail-fast: false
+      matrix:
+        chunk: ${{ fromJson(needs.generate-matrix.outputs.chunks) }}
+
+    env:
+      PROXY_USER: ${{ secrets.PROXY_USER }}
+      PROXY_PASS: ${{ secrets.PROXY_PASS }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      MATRIX_ID: ${{ matrix.chunk }}
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Run proxy setup (starts microsocks + cloudflared, writes outputs, exits)
+      - name: Setup SOCKS5 proxy + tunnel
+        id: proxy
+        run: |
+          chmod +x setup_proxy.sh
+          bash setup_proxy.sh
+
+      # ── 3. Save proxy info to file ─────────────────────────────────────────
+      - name: Save proxy info
+        if: success()
+        run: |
+          mkdir -p proxy_data
+          cat > "proxy_data/proxy_${{ matrix.chunk }}.json" <<EOF
+          {
+            "id": ${{ matrix.chunk }},
+            "tunnel_url": "${{ steps.proxy.outputs.TUNNEL_URL }}",
+            "proxy_url": "${{ steps.proxy.outputs.PROXY_URL }}",
+            "runner_ip": "${{ steps.proxy.outputs.RUNNER_IP }}",
+            "created_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          }
+          EOF
+
+      # ── 4. Upload as artifact ──────────────────────────────────────────────
+      - name: Upload proxy data
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxy_${{ matrix.chunk }}
+          path: proxy_data/proxy_${{ matrix.chunk }}.json
+          retention-days: 1
+
+      # ── 5. Post to Discord ─────────────────────────────────────────────────
+      - name: Send to Discord
+        if: success() && env.DISCORD_WEBHOOK_URL != ''
+        run: |
+          PAYLOAD=$(cat <<EOF
+          {
+            "embeds": [{
+              "title": "Proxy #${{ matrix.chunk }} Ready",
+              "color": 5814783,
+              "fields": [
+                { "name": "Tunnel", "value": "${{ steps.proxy.outputs.TUNNEL_URL }}", "inline": false },
+                { "name": "Proxy URL", "value": "\`${{ steps.proxy.outputs.PROXY_URL }}\`", "inline": false },
+                { "name": "Runner IP", "value": "${{ steps.proxy.outputs.RUNNER_IP }}", "inline": true },
+                { "name": "ID", "value": "${{ matrix.chunk }}", "inline": true }
+              ],
+              "footer": { "text": "$(date -u)" }
+            }]
+          }
+          EOF
+          )
+          curl -s -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+
+      # ── 6. Keep tunnel alive for specified duration ────────────────────────
+      - name: Keep tunnel alive
+        if: success()
+        run: |
+          DURATION_HOURS=${{ github.event.inputs.duration || '6' }}
+          DURATION_SECS=$((DURATION_HOURS * 3600))
+          echo "[KEEP-ALIVE] Tunnel will stay up for ${DURATION_HOURS}h (${DURATION_SECS}s)"
+          echo "[KEEP-ALIVE] Proxy: ${{ steps.proxy.outputs.PROXY_URL }}"
+          echo "[KEEP-ALIVE] Monitoring cloudflared process..."
+          
+          END_TIME=$(($(date +%s) + DURATION_SECS))
+          CHECK_COUNT=0
+          
+          while [ $(date +%s) -lt $END_TIME ]; do
+            sleep 300
+            CHECK_COUNT=$((CHECK_COUNT + 1))
+            
+            if pgrep -x cloudflared > /dev/null; then
+              REMAINING=$(( ($(date +%s) - $(date +%s) + END_TIME - $(date +%s)) / 60 ))
+              echo "[CHECK $CHECK_COUNT] cloudflared alive — $(date)"
+            else
+              echo "[WARN] cloudflared died, attempting restart..."
+              nohup cloudflared tunnel --no-autoupdate --url "socks5://localhost:1080" >/dev/null 2>&1 &
+              disown
+              sleep 5
+              if pgrep -x cloudflared > /dev/null; then
+                echo "[OK] cloudflared restarted"
+              else
+                echo "[FAIL] Could not restart cloudflared"
+                break
+              fi
+            fi
+          done
+          
+          echo "[DONE] Keep-alive period ended"
+
+  # ── Step 3: Collect all proxies into one file ───────────────────────────────
+  collect-proxies:
+    needs: [generate-matrix, spawn-proxy]
+    if: always() && needs.spawn-proxy.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      # ── Download all proxy artifacts ────────────────────────────────────────
+      - name: Download all proxy artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: proxy_*
+          path: all_proxies
+          merge-multiple: true
+
+      # ── Merge into proxies.json ────────────────────────────────────────────
+      - name: Merge proxy data
+        run: |
+          python3 << 'PYEOF'
+          import json
+          import glob
+          import os
+
+          proxies = []
+          files = sorted(glob.glob("all_proxies/proxy_*.json"))
+
+          for f in files:
+              try:
+                  with open(f) as fh:
+                      data = json.load(fh)
+                      if data.get("tunnel_url"):
+                          proxies.append(data)
+              except Exception as e:
+                  print(f"Skipping {f}: {e}")
+
+          result = {
+              "total": len(proxies),
+              "auth": {
+                  "username": os.environ.get("PROXY_USER", ""),
+                  "password": os.environ.get("PROXY_PASS", "")
+              },
+              "proxies": proxies
+          }
+
+          with open("proxies.json", "w") as out:
+              json.dump(result, out, indent=2)
+
+          print(f"Collected {len(proxies)} proxies")
+
+          for p in proxies:
+              print(f"  #{p['id']:3d}  {p['proxy_url']}")
+          PYEOF
+        env:
+          PROXY_USER: ${{ secrets.PROXY_USER }}
+          PROXY_PASS: ${{ secrets.PROXY_PASS }}
+
+      # ── Upload merged file ─────────────────────────────────────────────────
+      - name: Upload proxies.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: proxies_all
+          path: proxies.json
+          retention-days: 7
+
+      # ── Post summary to Discord ────────────────────────────────────────────
+      - name: Discord summary
+        if: env.DISCORD_WEBHOOK_URL != ''
+        run: |
+          TOTAL=$(python3 -c "import json; print(json.load(open('proxies.json'))['total'])")
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"**Proxy Farm Complete** — $TOTAL proxies ready. Download \`proxies.json\` artifact.\"}" \
+            "$DISCORD_WEBHOOK_URL"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      # ── Print to stdout ────────────────────────────────────────────────────
+      - name: Print proxies
+        run: cat proxies.json

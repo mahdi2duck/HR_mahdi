@@ -1,0 +1,10 @@
+node_modules/
+.env
+tor/tor/
+tor/tor_instances/
+tor/torrc_*
+*.tar.gz
+proxy_data/
+all_proxies/
+proxies.json
+tor_ips.txt

@@ -1,0 +1,77 @@
+name: Matrix Traffic Runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  # ── Step 1: Dynamically generate a JSON array [1, 2, ..., 256] ──────────────
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.set-matrix.outputs.chunks }}
+    steps:
+      - name: Generate chunk list (1 to 256)
+        id: set-matrix
+        run: |
+          echo "chunks=$(python3 -c 'import json; print(json.dumps(list(range(1, 257))))')" >> $GITHUB_OUTPUT
+
+  # ── Step 2: Run traffic script for every chunk in parallel ──────────────────
+  run-traffic-command:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 2
+      fail-fast: false
+      matrix:
+        chunk: ${{ fromJson(needs.generate-matrix.outputs.chunks) }}
+
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      # PROXY_PASSWORD: ${{ secrets.PROXY_PASSWORD }}
+      # PROXY_PORT:     ${{ secrets.PROXY_PORT }}
+      # PROXY_SERVER:   ${{ secrets.PROXY_SERVER }}
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup pnpm ─────────────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      # ── 3. Node.js (uses pnpm-lock.yaml as cache key) ────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      # ── 4. Playwright browser cache ──────────────────────────────────────────
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # ── 5. Install dependencies (frozen = exact lock file, no drift) ──────────
+      - name: Install project dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── 6. Install Playwright browsers ONLY on cache miss ────────────────────
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+
+      # ── 7. Run the traffic script for this chunk ─────────────────────────────
+      # Note: xvfb is pre-installed on ubuntu-latest — no install step needed
+      - name: Run matrix traffic (chunk ${{ matrix.chunk }})
+        run: xvfb-run --auto-servernum node matrix_traffic.js work=3
