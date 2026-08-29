@@ -17,7 +17,7 @@ on:
         default: "6"
 
 jobs:
-  # â”€â”€ Step 1: Generate matrix [1..count] â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Step 1: Generate matrix [1..count] ──────────────────────────────────────
   generate-matrix:
     runs-on: ubuntu-latest
     outputs:
@@ -29,7 +29,7 @@ jobs:
           COUNT=${{ github.event.inputs.count || '250' }}
           echo "chunks=$(python3 -c "import json; print(json.dumps(list(range(1, $COUNT + 1))))")" >> $GITHUB_OUTPUT
 
-  # â”€â”€ Step 2: Spawn SOCKS5 proxy on each runner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Step 2: Spawn SOCKS5 proxy on each runner ───────────────────────────────
   spawn-proxy:
     needs: generate-matrix
     runs-on: ubuntu-latest
@@ -52,18 +52,18 @@ jobs:
       MATRIX_ID: ${{ matrix.chunk }}
 
     steps:
-      # â”€â”€ 1. Checkout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── 1. Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # â”€â”€ 2. Run proxy setup (starts microsocks + cloudflared, writes outputs, exits)
+      # ── 2. Run proxy setup (starts microsocks + cloudflared, writes outputs, exits)
       - name: Setup SOCKS5 proxy + tunnel
         id: proxy
         run: |
           chmod +x setup_proxy.sh
           bash setup_proxy.sh
 
-      # â”€â”€ 3. Save proxy info to file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── 3. Save proxy info to file ─────────────────────────────────────────
       - name: Save proxy info
         if: success()
         run: |
@@ -78,7 +78,7 @@ jobs:
           }
           EOF
 
-      # â”€â”€ 4. Upload as artifact â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── 4. Upload as artifact ──────────────────────────────────────────────
       - name: Upload proxy data
         if: success()
         uses: actions/upload-artifact@v4
@@ -87,7 +87,7 @@ jobs:
           path: proxy_data/proxy_${{ matrix.chunk }}.json
           retention-days: 1
 
-      # â”€â”€ 5. Save to Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── 5. Save to Supabase ────────────────────────────────────────────────
       - name: Save proxy to Supabase
         if: success() && env.SUPABASE_URL != ''
         run: |
@@ -106,7 +106,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
-      # â”€â”€ 6. Post to Discord â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── 6. Post to Discord ─────────────────────────────────────────────────
       - name: Send to Discord
         if: success() && env.DISCORD_WEBHOOK_URL != ''
         run: |
@@ -128,7 +128,7 @@ jobs:
           )
           curl -s -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
 
-      # â”€â”€ 7. Keep tunnel alive for specified duration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── 7. Keep tunnel alive for specified duration ────────────────────────
       - name: Keep tunnel alive
         if: success()
         run: |
@@ -147,7 +147,7 @@ jobs:
             
             if pgrep -x cloudflared > /dev/null; then
               REMAINING=$(( ($(date +%s) - $(date +%s) + END_TIME - $(date +%s)) / 60 ))
-              echo "[CHECK $CHECK_COUNT] cloudflared alive â€” $(date)"
+              echo "[CHECK $CHECK_COUNT] cloudflared alive — $(date)"
             else
               echo "[WARN] cloudflared died, attempting restart..."
               nohup cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN" >/dev/null 2>&1 &
@@ -164,13 +164,13 @@ jobs:
           
           echo "[DONE] Keep-alive period ended"
 
-  # â”€â”€ Step 3: Collect all proxies into one file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # ── Step 3: Collect all proxies into one file ───────────────────────────────
   collect-proxies:
     needs: [generate-matrix, spawn-proxy]
     if: always() && needs.spawn-proxy.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
-      # â”€â”€ Download all proxy artifacts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── Download all proxy artifacts ────────────────────────────────────────
       - name: Download all proxy artifacts
         uses: actions/download-artifact@v4
         with:
@@ -178,7 +178,7 @@ jobs:
           path: all_proxies
           merge-multiple: true
 
-      # â”€â”€ Merge into proxies.json â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── Merge into proxies.json ────────────────────────────────────────────
       - name: Merge proxy data
         run: |
           python3 << 'PYEOF'
@@ -219,7 +219,7 @@ jobs:
           PROXY_USER: ${{ secrets.PROXY_USER }}
           PROXY_PASS: ${{ secrets.PROXY_PASS }}
 
-      # â”€â”€ Upload merged file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── Upload merged file ─────────────────────────────────────────────────
       - name: Upload proxies.json
         uses: actions/upload-artifact@v4
         with:
@@ -227,17 +227,17 @@ jobs:
           path: proxies.json
           retention-days: 7
 
-      # â”€â”€ Post summary to Discord â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── Post summary to Discord ────────────────────────────────────────────
       - name: Discord summary
         if: env.DISCORD_WEBHOOK_URL != ''
         run: |
           TOTAL=$(python3 -c "import json; print(json.load(open('proxies.json'))['total'])")
           curl -s -H "Content-Type: application/json" \
-            -d "{\"content\": \"**Proxy Farm Complete** â€” $TOTAL proxies ready. Download \`proxies.json\` artifact.\"}" \
+            -d "{\"content\": \"**Proxy Farm Complete** — $TOTAL proxies ready. Download \`proxies.json\` artifact.\"}" \
             "$DISCORD_WEBHOOK_URL"
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 
-      # â”€â”€ Print to stdout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      # ── Print to stdout ────────────────────────────────────────────────────
       - name: Print proxies
         run: cat proxies.json
