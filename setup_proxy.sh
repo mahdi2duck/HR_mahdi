@@ -1,12 +1,12 @@
 #!/bin/bash
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# setup_proxy.sh  â€”  Install microsocks + cloudflared, start SOCKS5 proxy,
+# ─────────────────────────────────────────────────────────────────────────────
+# setup_proxy.sh  —  Install microsocks + cloudflared, start SOCKS5 proxy,
 #                     run named Cloudflare tunnel, create DNS record, verify
 #
 # Required env vars:  PROXY_USER, PROXY_PASS, CLOUDFLARE_TUNNEL_TOKEN,
 #                     CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, MATRIX_ID
 # Outputs:            TUNNEL_URL, PROXY_URL, RUNNER_IP
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
@@ -14,12 +14,12 @@ PROXY_HOST="proxies.filmfiend.me"
 SUBDOMAIN="proxy-${MATRIX_ID}"
 HOSTNAME="${SUBDOMAIN}.${PROXY_HOST}"
 
-echo "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
-echo "  Proxy Runner #${MATRIX_ID} â€” Starting setup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Proxy Runner #${MATRIX_ID} — Starting setup"
 echo "  Target: $HOSTNAME"
-echo "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# â”€â”€ 1. Install microsocks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── 1. Install microsocks ────────────────────────────────────────────────────
 echo "[1/7] Installing microsocks..."
 if command -v microsocks &>/dev/null; then
     echo "  [OK] microsocks already installed"
@@ -35,7 +35,7 @@ else
     echo "  [OK] microsocks installed"
 fi
 
-# â”€â”€ 2. Install cloudflared â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── 2. Install cloudflared ───────────────────────────────────────────────────
 echo "[2/7] Installing cloudflared..."
 if command -v cloudflared &>/dev/null; then
     echo "  [OK] cloudflared already installed"
@@ -46,7 +46,7 @@ else
     echo "  [OK] cloudflared installed"
 fi
 
-# â”€â”€ 3. Start SOCKS5 proxy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── 3. Start SOCKS5 proxy ────────────────────────────────────────────────────
 echo "[3/7] Starting SOCKS5 proxy on :1080..."
 pkill microsocks 2>/dev/null || true
 sleep 1
@@ -63,8 +63,8 @@ else
     exit 1
 fi
 
-# â”€â”€ 4. Create DNS record via Cloudflare API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-echo "[4/7] Creating DNS record: $HOSTNAME â†’ tunnel..."
+# ── 4. Create DNS record via Cloudflare API ──────────────────────────────────
+echo "[4/7] Creating DNS record: $HOSTNAME → tunnel..."
 TUNNEL_UUID="71d6f80e-10ad-4618-9996-b919a1a88443"
 
 if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ZONE_ID:-}" ]; then
@@ -92,17 +92,17 @@ if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ZONE_ID:-}" ]; then
             echo "  [OK] DNS record created: $HOSTNAME"
         else
             echo "  [WARN] DNS creation failed (code: $(echo "$DNS_RESP" | grep -oP '"code":\s*\K\d+' || echo '?'))"
-            echo "  [WARN] Make sure DNS record exists: CNAME $HOSTNAME â†’ ${TUNNEL_UUID}.cfargotunnel.com"
+            echo "  [WARN] Make sure DNS record exists: CNAME $HOSTNAME → ${TUNNEL_UUID}.cfargotunnel.com"
         fi
     else
         echo "  [OK] DNS record already exists"
     fi
 else
     echo "  [SKIP] No CLOUDFLARE_API_TOKEN / CLOUDFLARE_ZONE_ID set"
-    echo "  [WARN] Ensure CNAME $HOSTNAME â†’ ${TUNNEL_UUID}.cfargotunnel.com exists"
+    echo "  [WARN] Ensure CNAME $HOSTNAME → ${TUNNEL_UUID}.cfargotunnel.com exists"
 fi
 
-# â”€â”€ 5. Start Cloudflare named tunnel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── 5. Start Cloudflare named tunnel ─────────────────────────────────────────
 echo "[5/7] Starting Cloudflare named tunnel..."
 pkill cloudflared 2>/dev/null || true
 sleep 1
@@ -124,7 +124,7 @@ fi
 
 echo "  [OK] cloudflared running"
 
-# â”€â”€ 6. Verify proxy works â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── 6. Verify proxy works ────────────────────────────────────────────────────
 echo "[6/7] Verifying proxy..."
 TUNNEL_URL="https://${HOSTNAME}"
 VERIFY_OUTPUT=$(curl -x "socks5h://${PROXY_USER}:${PROXY_PASS}@127.0.0.1:1080" \
@@ -134,17 +134,17 @@ VERIFY_OUTPUT=$(curl -x "socks5h://${PROXY_USER}:${PROXY_PASS}@127.0.0.1:1080" \
 RUNNER_IP=$(echo "$VERIFY_OUTPUT" | grep -oP '"origin":\s*"\K[^"]+' || echo "unknown")
 echo "  [OK] Runner IP: $RUNNER_IP"
 
-# â”€â”€ 7. Output results â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── 7. Output results ────────────────────────────────────────────────────────
 PROXY_URL="socks5h://${PROXY_USER}:${PROXY_PASS}@${HOSTNAME}"
 
 echo ""
-echo "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  PROXY READY"
-echo "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Tunnel:  $TUNNEL_URL"
 echo "  Proxy:   $PROXY_URL"
 echo "  IP:      $RUNNER_IP"
-echo "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Write outputs for GitHub Actions
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
