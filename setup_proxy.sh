@@ -44,7 +44,7 @@ pkill microsocks 2>/dev/null || true
 sleep 1
 
 # Start microsocks and capture stderr for debugging
-microsocks -1 -q -u "$PROXY_USER" -P "$PROXY_PASS" -i 0.0.0.0 -p 1080 2>/tmp/microsocks.err &
+microsocks -1 -u "$PROXY_USER" -P "$PROXY_PASS" -i 0.0.0.0 -p 1080 2>/tmp/microsocks.err &
 MICROSOCKS_PID=$!
 sleep 2
 
