@@ -6,7 +6,6 @@
 # Required env vars:  PROXY_USER, PROXY_PASS
 # Outputs:            TUNNEL_URL, PROXY_URL, RUNNER_IP
 # ─────────────────────────────────────────────────────────────────────────────
-set -euo pipefail
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Proxy Runner — Starting setup"
@@ -17,15 +16,13 @@ echo "[1/6] Installing microsocks..."
 if command -v microsocks &>/dev/null; then
     echo "  [OK] microsocks already installed"
 else
-    sudo apt-get update -qq && sudo apt-get install -y -qq microsocks 2>/dev/null || {
+    sudo apt-get update -qq 2>/dev/null
+    sudo apt-get install -y -qq microsocks 2>/dev/null || {
         echo "  [APT FAIL] Building from source..."
-        sudo apt-get install -y -qq build-essential git
-        cd /tmp
-        git clone https://github.com/rofl0r/microsocks.git
-        cd microsocks
-        make
+        sudo apt-get install -y -qq build-essential git 2>/dev/null
+        cd /tmp && git clone https://github.com/rofl0r/microsocks.git 2>/dev/null
+        cd /tmp/microsocks && make 2>/dev/null
         sudo install -m 755 microsocks /usr/local/bin/microsocks
-        cd /
     }
     echo "  [OK] microsocks installed"
 fi
@@ -46,15 +43,23 @@ echo "[3/6] Starting SOCKS5 proxy on :1080..."
 pkill microsocks 2>/dev/null || true
 sleep 1
 
-nohup microsocks -1 -q -u "$PROXY_USER" -P "$PROXY_PASS" -i 0.0.0.0 -p 1080 >/dev/null 2>&1 &
+# Start microsocks and capture stderr for debugging
+microsocks -1 -q -u "$PROXY_USER" -P "$PROXY_PASS" -i 0.0.0.0 -p 1080 2>/tmp/microsocks.err &
 MICROSOCKS_PID=$!
 sleep 2
 
-if ! kill -0 "$MICROSOCKS_PID" 2>/dev/null; then
+if kill -0 "$MICROSOCKS_PID" 2>/dev/null; then
+    echo "  [OK] microsocks running (PID: $MICROSOCKS_PID)"
+else
     echo "  [FAIL] microsocks failed to start"
+    echo "  [DEBUG] Error output:"
+    cat /tmp/microsocks.err 2>/dev/null || echo "  (no error output)"
+    echo "  [DEBUG] Checking port 1080:"
+    ss -tlnp | grep 1080 || echo "  (port 1080 not in use)"
+    echo "  [DEBUG] microsocks binary:"
+    which microsocks || echo "  (not found)"
     exit 1
 fi
-echo "  [OK] microsocks running (PID: $MICROSOCKS_PID)"
 
 # ── 4. Start Cloudflare quick tunnel ─────────────────────────────────────────
 echo "[4/6] Starting Cloudflare quick tunnel..."
@@ -62,9 +67,8 @@ pkill cloudflared 2>/dev/null || true
 sleep 1
 
 CF_LOG="/tmp/cloudflared.log"
-nohup cloudflared tunnel --no-autoupdate --url "socks5://localhost:1080" >"$CF_LOG" 2>&1 &
+cloudflared tunnel --no-autoupdate --url "socks5://localhost:1080" >"$CF_LOG" 2>&1 &
 CF_PID=$!
-disown $CF_PID
 echo "  cloudflared PID: $CF_PID"
 
 # ── 5. Parse tunnel URL ──────────────────────────────────────────────────────
@@ -84,9 +88,8 @@ for i in $(seq 1 $MAX_RETRIES); do
         if grep -q "429" "$CF_LOG" 2>/dev/null; then
             echo "  [RATE LIMITED] Waiting 30s before retry..."
             sleep 30
-            nohup cloudflared tunnel --no-autoupdate --url "socks5://localhost:1080" >"$CF_LOG" 2>&1 &
+            cloudflared tunnel --no-autoupdate --url "socks5://localhost:1080" >"$CF_LOG" 2>&1 &
             CF_PID=$!
-            disown $CF_PID
         else
             echo "  [FAIL] cloudflared died unexpectedly"
             cat "$CF_LOG"
