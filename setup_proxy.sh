@@ -47,7 +47,7 @@ else
 fi
 
 # ── 3. Start SOCKS5 proxy ────────────────────────────────────────────────────
-echo "[3/7] Starting SOCKS5 proxy on :1080..."
+echo "[3/8] Starting SOCKS5 proxy on :1080..."
 pkill microsocks 2>/dev/null || true
 sleep 1
 
@@ -63,8 +63,36 @@ else
     exit 1
 fi
 
-# ── 4. Create DNS record via Cloudflare API ──────────────────────────────────
-echo "[4/7] Creating DNS record: $HOSTNAME → tunnel..."
+# ── 4. Install & start tinyproxy (HTTP proxy for Playwright) ─────────────────
+echo "[4/8] Installing tinyproxy..."
+sudo apt-get install -y -qq tinyproxy 2>/dev/null || true
+
+# Configure tinyproxy: listen on 0.0.0.0:8080, allow local + all
+cat > /tmp/tinyproxy.conf <<'TPCONF'
+Port 8080
+Listen 0.0.0.0
+Timeout 600
+Allow 0.0.0.0/0
+Upstream socks5 127.0.0.1:1080
+TPCONF
+
+pkill tinyproxy 2>/dev/null || true
+sleep 1
+sudo cp /tmp/tinyproxy.conf /etc/tinyproxy/tinyproxy.conf 2>/dev/null || \
+    sudo cp /tmp/tinyproxy.conf /etc/tinyproxy.conf 2>/dev/null || true
+sudo tinyproxy 2>/tmp/tinyproxy.err &
+TINYPROXY_PID=$!
+sleep 2
+
+if kill -0 "$TINYPROXY_PID" 2>/dev/null; then
+    echo "  [OK] tinyproxy running on :8080 (PID: $TINYPROXY_PID)"
+else
+    echo "  [WARN] tinyproxy failed, falling back to microsocks-only"
+    cat /tmp/tinyproxy.err 2>/dev/null || true
+fi
+
+# ── 5. Create DNS record via Cloudflare API ──────────────────────────────────
+echo "[5/8] Creating DNS record: $HOSTNAME → tunnel..."
 TUNNEL_UUID="71d6f80e-10ad-4618-9996-b919a1a88443"
 
 if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ZONE_ID:-}" ]; then
@@ -102,8 +130,8 @@ else
     echo "  [WARN] Ensure CNAME $HOSTNAME → ${TUNNEL_UUID}.cfargotunnel.com exists"
 fi
 
-# ── 5. Start Cloudflare named tunnel ─────────────────────────────────────────
-echo "[5/7] Starting Cloudflare named tunnel..."
+# ── 6. Start Cloudflare named tunnel ─────────────────────────────────────────
+echo "[6/8] Starting Cloudflare named tunnel..."
 pkill cloudflared 2>/dev/null || true
 sleep 1
 
@@ -124,8 +152,8 @@ fi
 
 echo "  [OK] cloudflared running"
 
-# ── 6. Verify proxy works ────────────────────────────────────────────────────
-echo "[6/7] Verifying proxy..."
+# ── 7. Verify proxy works ────────────────────────────────────────────────────
+echo "[7/8] Verifying proxy..."
 TUNNEL_URL="https://${HOSTNAME}"
 VERIFY_OUTPUT=$(curl -x "socks5h://${PROXY_USER}:${PROXY_PASS}@127.0.0.1:1080" \
     -s --max-time 15 \
@@ -134,22 +162,25 @@ VERIFY_OUTPUT=$(curl -x "socks5h://${PROXY_USER}:${PROXY_PASS}@127.0.0.1:1080" \
 RUNNER_IP=$(echo "$VERIFY_OUTPUT" | grep -oP '"origin":\s*"\K[^"]+' || echo "unknown")
 echo "  [OK] Runner IP: $RUNNER_IP"
 
-# ── 7. Output results ────────────────────────────────────────────────────────
-PROXY_URL="socks5h://${PROXY_USER}:${PROXY_PASS}@${HOSTNAME}"
+# ── 8. Output results ────────────────────────────────────────────────────────
+PROXY_URL_SOCKS="socks5h://${PROXY_USER}:${PROXY_PASS}@${HOSTNAME}"
+PROXY_URL_HTTP="http://${HOSTNAME}"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  PROXY READY"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  Tunnel:  $TUNNEL_URL"
-echo "  Proxy:   $PROXY_URL"
+echo "  HTTP:    $PROXY_URL_HTTP"
+echo "  SOCKS5:  $PROXY_URL_SOCKS"
 echo "  IP:      $RUNNER_IP"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Write outputs for GitHub Actions
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
     echo "TUNNEL_URL=$TUNNEL_URL" >> "$GITHUB_OUTPUT"
-    echo "PROXY_URL=$PROXY_URL" >> "$GITHUB_OUTPUT"
+    echo "PROXY_URL=$PROXY_URL_HTTP" >> "$GITHUB_OUTPUT"
+    echo "PROXY_URL_SOCKS=$PROXY_URL_SOCKS" >> "$GITHUB_OUTPUT"
     echo "RUNNER_IP=$RUNNER_IP" >> "$GITHUB_OUTPUT"
 fi
 
@@ -162,7 +193,8 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 |-------|-------|
 | Hostname | \`$HOSTNAME\` |
 | Tunnel | $TUNNEL_URL |
-| Proxy | \`$PROXY_URL\` |
+| HTTP Proxy | \`$PROXY_URL_HTTP\` |
+| SOCKS5 Proxy | \`$PROXY_URL_SOCKS\` |
 | Runner IP | $RUNNER_IP |
 | Created | $(date -u +"%Y-%m-%dT%H:%M:%SZ") |
 EOF
