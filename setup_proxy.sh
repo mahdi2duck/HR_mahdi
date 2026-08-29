@@ -17,7 +17,16 @@ echo "[1/6] Installing microsocks..."
 if command -v microsocks &>/dev/null; then
     echo "  [OK] microsocks already installed"
 else
-    apt-get update -qq && apt-get install -y -qq microsocks
+    sudo apt-get update -qq && sudo apt-get install -y -qq microsocks 2>/dev/null || {
+        echo "  [APT FAIL] Building from source..."
+        sudo apt-get install -y -qq build-essential git
+        cd /tmp
+        git clone https://github.com/rofl0r/microsocks.git
+        cd microsocks
+        make
+        sudo install -m 755 microsocks /usr/local/bin/microsocks
+        cd /
+    }
     echo "  [OK] microsocks installed"
 fi
 
@@ -27,8 +36,8 @@ if command -v cloudflared &>/dev/null; then
     echo "  [OK] cloudflared already installed"
 else
     curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-        -o /usr/local/bin/cloudflared
-    chmod +x /usr/local/bin/cloudflared
+        -o /tmp/cloudflared
+    sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
     echo "  [OK] cloudflared installed"
 fi
 
